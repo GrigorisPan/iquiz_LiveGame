@@ -12,6 +12,25 @@ const { Players } = require('./utils/players');
 
 const games = new LiveGames();
 const players = new Players();
+const badFillerArray = [
+  'Τελικά ήταν μια δύσκολη ερώτηση.',
+  'Σας δυσκόλεψε όλους αυτή η ερώτηση.',
+  'Μάλλον ήθελε περισσότερη προσοχή ερώτηση.',
+  'Δεν πήγε καλά αυτή η ερώτηση.',
+];
+const goodFillerArray = [
+  'Καλή προσπάθεια.Αλλά μπορείτε ακόμα καλύτερα.',
+  'Μπράβο παιδιά.',
+  'Φάνηκε να μην σας δυσκόλεψε πολύ η ερώτηση.',
+  'Συνεχίστε την προσπάθεια.Τα πάτε πολύ καλά.',
+];
+const excellentFillerArray = [
+  'Έχει αστέρια αυτή η τάξη.',
+  'Εξαιρετική απόδοση.',
+  'Είστε όλοι πολύ καλά διαβασμένοι.',
+  'Τελικά αποδείχθηκε μια πολύ εύκολη ερώτηση.',
+];
+
 // Load env vars
 dotenv.config({ path: './config/config.env' });
 
@@ -171,7 +190,10 @@ io.on('connection', (socket) => {
             }
           });
         }
-        if (!banPlayer) {
+        if (games.games[i].gameLive) {
+          socket.emit('noGameFound'); //Player is sent back to 'join' page because game was not found with pin
+        }
+        if (!banPlayer && games.games[i].gameLive == false) {
           console.log('Player connected to game');
 
           players.addPlayer(
@@ -185,6 +207,7 @@ io.on('connection', (socket) => {
               answer: '',
               correctAns: 0,
               falseAns: 0,
+              playerFirstAns: 0,
             }
           ); //add player to game
           socket.join(params.pin); //Player is joining room based pin
@@ -360,6 +383,7 @@ io.on('connection', (socket) => {
     for (let i = 0; i < Object.keys(players.players).length; i++) {
       if (players.players[i].hostId == socket.id) {
         players.players[i].gameData.answer = 0;
+        players.players[i].gameData.playerFirstAns = 0;
       }
     }
     const game = games.getGame(socket.id);
@@ -439,10 +463,16 @@ io.on('connection', (socket) => {
         game.gameData.countCorrect += 1;
         player.gameData.correctAns += 1;
         ansFlag = true;
-        game.gameData.firstAns = true;
+        if (game.gameData.firstAns == false) {
+          game.gameData.firstAns = true;
+          player.gameData.playerFirstAns = 1;
+        }
         socket.emit('answerResult', true);
       } else {
-        game.gameData.firstAns = true;
+        if (game.gameData.firstAns == false) {
+          game.gameData.firstAns = true;
+          player.gameData.playerFirstAns = 1;
+        }
         player.gameData.falseAns += 1;
       }
       io.to(game.pin).emit('getTime', { playerId: socket.id, ansFlag });
@@ -455,7 +485,9 @@ io.on('connection', (socket) => {
         let answerD = 0;
         let answerE = 0;
         let total = 0;
-
+        const max = 3;
+        const min = 0;
+        const randomNum = Math.round(Math.random() * Math.abs(max - min) + min);
         game.gameData.questionLive = false; // Question has been ended when all players answered under time
         const playerData = players.getPlayers(game.hostId);
 
@@ -464,11 +496,11 @@ io.on('connection', (socket) => {
           (game.gameData.countCorrect / playerData.length) * 100;
         let fillerSlideFeedback;
         if (rateCorrect < 50) {
-          fillerSlideFeedback = 'άσχημα';
+          fillerSlideFeedback = badFillerArray[randomNum];
         } else if (rateCorrect >= 50 && rateCorrect < 80) {
-          fillerSlideFeedback = 'καλά';
+          fillerSlideFeedback = goodFillerArray[randomNum];
         } else {
-          fillerSlideFeedback = 'εξαιρετικά';
+          fillerSlideFeedback = excellentFillerArray[randomNum];
         }
         //Chart Bars Calculator
         if (playerData.length > 0) {
@@ -557,18 +589,21 @@ io.on('connection', (socket) => {
     let answerD = 0;
     let answerE = 0;
     let total = 0;
+    const max = 3;
+    const min = 0;
+    const randomNum = Math.round(Math.random() * Math.abs(max - min) + min);
     let fillerSlideFeedback = null;
-    if (playerData.length > 0) {
+    if (playerData.length > 0 && game.gameData.firstAns) {
       //Filler Slide Calculator
       const rateCorrect =
         (game.gameData.countCorrect / playerData.length) * 100;
-      let fillerSlideFeedback;
+      /* let fillerSlideFeedback; */
       if (rateCorrect < 50) {
-        fillerSlideFeedback = 'άσχημα';
+        fillerSlideFeedback = badFillerArray[randomNum];
       } else if (rateCorrect >= 50 && rateCorrect < 80) {
-        fillerSlideFeedback = 'καλά';
+        fillerSlideFeedback = goodFillerArray[randomNum];
       } else {
-        fillerSlideFeedback = 'εξαιρετικά';
+        fillerSlideFeedback = excellentFillerArray[randomNum];
       }
       //Chart Bars Calculator
       for (let i = 0; i < playerData.length; i++) {
@@ -599,6 +634,7 @@ io.on('connection', (socket) => {
     }
 
     const feedback = game.gameData.feedback;
+
     io.to(game.pin).emit('questionOver', {
       playerData,
       feedback,
@@ -630,11 +666,14 @@ const pointSystemCalc = (game, player, ansTime, ansFlag) => {
     let time = ansTime / game.gameData.time;
     const score = time * 100;
     player.gameData.score += score;
+    //console.log(score, ansTime);
   } else {
     let score = 1 / player.gameData.falseAns;
     score = -(score * 100);
     player.gameData.score += score;
+    //console.log(score, ansTime);
   }
+  /* console.log(player.gameData.score, ansTime); */
 };
 
 //Calculate Score for Point System - No Penalty game mode
@@ -643,6 +682,7 @@ const pointSystemNPCalc = (game, player, ansTime, ansFlag) => {
     let time = ansTime / game.gameData.time;
     const score = time * 100;
     player.gameData.score += score;
+    //console.log(score, ansTime);
   }
 };
 
@@ -672,7 +712,7 @@ const simpleGameCalc = (game, player, ansFlag, clientSocket) => {
 };
 
 //Calculate Score for Simple Game - No Penalty game mode
-const simpleGameNPCalc = (game, player, ansFlag) => {
+const simpleGameNPCalc = (game, player, ansFlag, clientSocket) => {
   if (ansFlag) {
     /*   if (game.gameData.failQuota) {
       if (game.gameData.numFailQuota >= player.gameData.falseAns) {
@@ -685,7 +725,7 @@ const simpleGameNPCalc = (game, player, ansFlag) => {
     /*  } */
   } else {
     if (game.gameData.failQuota) {
-      if (game.gameData.numFailQuota > player.gameData.falseAns) {
+      if (game.gameData.numFailQuota < player.gameData.falseAns) {
         clientSocket[0].emit('playerDisable');
       }
     }
@@ -693,7 +733,7 @@ const simpleGameNPCalc = (game, player, ansFlag) => {
 };
 
 const buzzerModeCalc = (game, player, ansFlag) => {
-  if (game.gameData.firstAns) {
+  if (player.gameData.playerFirstAns) {
     if (ansFlag) {
       /* if (game.gameData.failQuota) {
         if (game.gameData.numFailQuota >= player.gameData.falseAns) {
